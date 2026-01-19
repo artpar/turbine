@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  turbine:
+    build: .
+    volumes:
+      # Mount output directory for generated projects
+      - ./output:/workspace
+      # Mount API key (if using file-based auth)
+      - ~/.config/anthropic:/root/.config/anthropic:ro
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - DEBUG=${DEBUG:-}
+    # Override command with your prompt
+    # command: ["Build a REST API for managing todos with user authentication"]
+
+  # Development mode with hot reload
+  dev:
+    build:
+      context: .
+      target: builder
+    volumes:
+      - .:/app
+      - ./output:/workspace
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+      - DEBUG=1
+    command: ["npm", "run", "dev", "--", "--help"]
+
+  # Run tests
+  test:
+    build:
+      context: .
+      target: builder
+    volumes:
+      - .:/app
+      - /app/node_modules
+    command: ["npm", "test"]

@@ -1,0 +1,337 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# Turbine Spec - Todo API Example
+# ═══════════════════════════════════════════════════════════════════════════
+# This spec generates a complete Todo API with user authentication
+
+specVersion: "1.0"
+
+# ═══════════════════════════════════════════════════════════════════════════
+# PROJECT METADATA
+# ═══════════════════════════════════════════════════════════════════════════
+
+project:
+  name: Todo API
+  description: A REST API for managing todos with user authentication
+  version: "0.1.0"
+  author: Turbine
+  license: MIT
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TECHNOLOGY STACK
+# ═══════════════════════════════════════════════════════════════════════════
+
+stack:
+  backend: fastify
+  frontend: react
+  orm: prisma
+  database: postgresql
+  auth: jwt
+  testing:
+    - vitest
+  containerization: true
+  cicd: github
+
+# ═══════════════════════════════════════════════════════════════════════════
+# FEATURES
+# ═══════════════════════════════════════════════════════════════════════════
+
+features:
+  # API Features
+  openapi: true
+  graphql: false
+  websockets: false
+  rateLimit: true
+  cors: true
+
+  # Data Features
+  pagination: true
+  filtering: true
+  sorting: true
+  search: true
+
+  # Observability
+  logging: true
+  metrics: true
+  tracing: false
+  healthCheck: true
+
+  # Documentation
+  readme: true
+  apiDocs: true
+  changelog: true
+
+  # UI Features
+  darkMode: true
+  i18n: false
+
+# ═══════════════════════════════════════════════════════════════════════════
+# IDENTITY CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════
+# Defines which entity represents users and how authentication works
+
+identity:
+  userEntity: User
+  fields:
+    identifier: email
+    credential: passwordHash
+    displayName: name
+    role: role
+    active: isActive
+
+# ═══════════════════════════════════════════════════════════════════════════
+# CI/CD
+# ═══════════════════════════════════════════════════════════════════════════
+
+cicd:
+  provider: github
+  branches:
+    main: main
+  stages:
+    lint: false
+    typecheck: true
+    test: true
+    build: true
+    e2e: false
+    deploy: false
+
+# ═══════════════════════════════════════════════════════════════════════════
+# ENTITIES
+# ═══════════════════════════════════════════════════════════════════════════
+
+entities:
+  # User entity
+  - name: User
+    description: Application user
+    fields:
+      - name: email
+        type: email
+        validation:
+          required: true
+          unique: true
+        searchable: true
+
+      - name: name
+        type: string
+        validation:
+          required: true
+          minLength: 2
+          maxLength: 100
+        searchable: true
+
+      - name: passwordHash
+        type: string
+        validation:
+          required: true
+
+      - name: role
+        type: enum
+        enumValues: [user, admin]
+        validation:
+          required: true
+          default: user
+
+      - name: isActive
+        type: boolean
+        validation:
+          default: true
+        filterable: true
+
+    operations: [create, read, update, delete, list, search]
+    timestamps: true
+    softDelete: true
+
+  # Todo List entity
+  - name: TodoList
+    plural: TodoLists
+    description: A collection of todos
+    fields:
+      - name: title
+        type: string
+        validation:
+          required: true
+          minLength: 1
+          maxLength: 200
+        searchable: true
+        sortable: true
+
+      - name: description
+        type: text
+
+      - name: color
+        type: string
+        validation:
+          pattern: "^#[0-9A-Fa-f]{6}$"
+          default: "#3B82F6"
+
+      - name: isArchived
+        type: boolean
+        validation:
+          default: false
+        filterable: true
+
+      - name: userId
+        type: relation
+        relation:
+          type: belongsTo
+          target: User
+          foreignKey: userId
+          onDelete: cascade
+        filterable: true
+
+    operations: [create, read, update, delete, list]
+    timestamps: true
+    softDelete: false
+    # Ownership: track who created/modified, auto-filter by owner
+    ownership:
+      trackCreator: true
+      trackModifier: true
+      autoFilter: true
+      autoFilterField: createdById
+
+  # Todo Item entity
+  - name: Todo
+    plural: Todos
+    description: A single todo item
+    fields:
+      - name: title
+        type: string
+        validation:
+          required: true
+          minLength: 1
+          maxLength: 500
+        searchable: true
+        sortable: true
+
+      - name: description
+        type: text
+
+      - name: priority
+        type: enum
+        enumValues: [low, medium, high, urgent]
+        validation:
+          default: medium
+        filterable: true
+        sortable: true
+
+      - name: status
+        type: enum
+        enumValues: [pending, in_progress, completed, cancelled]
+        validation:
+          default: pending
+        filterable: true
+        sortable: true
+
+      - name: dueDate
+        type: datetime
+        sortable: true
+        filterable: true
+
+      - name: completedAt
+        type: datetime
+
+      - name: todoListId
+        type: relation
+        relation:
+          type: belongsTo
+          target: TodoList
+          foreignKey: todoListId
+          onDelete: cascade
+        filterable: true
+
+      - name: assigneeId
+        type: relation
+        relation:
+          type: belongsTo
+          target: User
+          foreignKey: assigneeId
+          onDelete: setNull
+
+      - name: tags
+        type: json
+        description: Array of tag strings
+
+    operations: [create, read, update, delete, list, search]
+    timestamps: true
+    softDelete: false
+    # Ownership: track who created/modified, auto-filter by owner
+    ownership:
+      trackCreator: true
+      trackModifier: true
+      autoFilter: true
+      autoFilterField: createdById
+    hooks:
+      afterUpdate: checkCompletion
+
+# ═══════════════════════════════════════════════════════════════════════════
+# CUSTOM ENDPOINTS
+# ═══════════════════════════════════════════════════════════════════════════
+
+customEndpoints:
+  - method: GET
+    path: /todos/stats
+    description: Get todo statistics for the current user
+    auth: true
+
+  - method: POST
+    path: /todos/:id/complete
+    description: Mark a todo as completed
+    auth: true
+
+  - method: POST
+    path: /todos/:id/assign
+    description: Assign a todo to a user
+    auth: true
+
+# ═══════════════════════════════════════════════════════════════════════════
+# ENVIRONMENT VARIABLES
+# ═══════════════════════════════════════════════════════════════════════════
+
+env:
+  DATABASE_URL:
+    description: PostgreSQL connection string
+    required: true
+    secret: true
+
+  JWT_SECRET:
+    description: Secret key for JWT token signing
+    required: true
+    secret: true
+
+  JWT_EXPIRES_IN:
+    description: JWT token expiration time
+    default: "7d"
+    required: false
+
+  PORT:
+    description: Server port
+    default: "3000"
+    required: false
+
+  LOG_LEVEL:
+    description: Logging level (debug, info, warn, error)
+    default: "info"
+    required: false
+
+# ═══════════════════════════════════════════════════════════════════════════
+# SEED DATA
+# ═══════════════════════════════════════════════════════════════════════════
+
+seeds:
+  User:
+    - email: admin@example.com
+      name: Admin User
+      passwordHash: "$2b$10$hashedpassword"
+      role: admin
+      isActive: true
+
+  TodoList:
+    - title: Personal Tasks
+      description: My personal todo list
+      color: "#3B82F6"
+      isArchived: false
+
+  Todo:
+    - title: Welcome to Turbine
+      description: This is your first todo item
+      priority: low
+      status: pending
