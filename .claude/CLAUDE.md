@@ -10,6 +10,8 @@ Turbine is a **Python CLI tool** that generates **TypeScript fullstack projects*
 - Turbine itself = **Python** (Pydantic, Typer, Rich)
 - Generated projects = **TypeScript** (Fastify, React, Prisma, Zod)
 
+**GitHub**: https://github.com/artpar/turbine
+
 ## Quick Start
 
 ```bash
@@ -20,85 +22,80 @@ source .venv/bin/activate
 turbine generate examples/todo-api/turbine.yaml -o /tmp/test
 
 # Test generated code compiles
-cd /tmp/test && npm install && npx tsc --noEmit && npx prisma validate
+cd /tmp/test && npm install && npx tsc --noEmit
+DATABASE_URL="postgresql://localhost:5432/test" npx prisma validate
 ```
 
 ## Current State (January 2026)
 
-### What's Working (All Tests Pass)
+### What's Working ✅
 
-| Check | Status |
-|-------|--------|
-| `turbine generate` | ✅ Produces 21 files |
-| `turbine validate` | ✅ Validates YAML specs |
-| `turbine init` | ✅ Creates starter spec |
-| `tsc --noEmit` | ✅ TypeScript compiles |
-| `prisma validate` | ✅ Schema is valid |
+| Feature | Status | Notes |
+|---------|--------|-------|
+| `turbine generate` | ✅ | Produces 22-23 files |
+| `turbine validate` | ✅ | Validates YAML specs |
+| `turbine init` | ✅ | Creates starter spec |
+| `tsc --noEmit` | ✅ | TypeScript compiles |
+| `prisma validate` | ✅ | Schema valid with relations |
+| Real Prisma CRUD | ✅ | findMany, create, update, delete |
+| Auth Middleware | ✅ | requireAuth, requireRole, optionalAuth |
+| Query Builder | ✅ | Filtering, sorting, pagination |
+| Ownership Tracking | ✅ | createdById, updatedById with back-refs |
+| Prisma @relation | ✅ | Proper decorators with onDelete |
 
-### Recent Fixes (This Session)
+### Recent Accomplishments (This Session)
 
-1. **JWT Type Error** - Fixed `expiresIn` type by importing `StringValue` from 'ms' package
-2. **PascalCase Preservation** - `TodoList` no longer becomes `Todolist`
-3. **React Import Extensions** - Added `.js` extensions for ESM compatibility
-4. **.env.example Placeholders** - DATABASE_URL and JWT_SECRET have example values
+1. **Real Prisma CRUD** - Routes now use actual database queries
+2. **Auth Middleware** - `src/middleware/auth.ts` with JWT verification
+3. **Query Builder** - `src/utils/query-builder.ts` for filtering/sorting/pagination
+4. **Ownership Relations** - Auto-filter by createdById, back-references on User model
+5. **Tenant Middleware** - Multi-tenancy support (when enabled in spec)
+6. **Fixed camelCase** - Handles PascalCase input correctly (TodoList → todoList)
+7. **Fixed empty arrays** - Type annotations for empty `string[]` arrays
+8. **Prisma back-refs** - Ownership relations have corresponding arrays on User
 
-## What Needs Work (Priority Order)
+## What Still Needs Work (Priority Order)
 
-### 1. Working Database Operations in Routes (HIGH)
-**File**: `turbine/generator.py` - `_generate_fastify_routes()`
+### 1. Auth Routes (HIGH) 🔴
+**Missing**: Register/login endpoints not generated yet.
 
-Current:
+Need to add `_generate_auth_routes()` that creates:
 ```typescript
-app.get('/', async (request, reply) => {
-  // TODO: Implement list query with pagination
-  const items: User[] = []
-  return items
-})
+// POST /auth/register
+// POST /auth/login
+// POST /auth/refresh
+// GET /auth/me
 ```
 
-Target:
+**Workaround**: Create users directly in database and generate JWT manually.
+
+### 2. Zod Optional Fields Bug (HIGH) 🔴
+**File**: `turbine/spec.py` - `field_to_zod()`
+
+Fields without `required: true` should have `.optional()` in Zod schema.
+
+Current bug:
 ```typescript
-app.get('/', async (request, reply) => {
-  const items = await db.user.findMany({ take: 20, skip: 0 })
-  return items
-})
+dueDate: z.coerce.date(),  // Should be z.coerce.date().optional()
 ```
 
-### 2. Proper Prisma Relations (HIGH)
-**File**: `turbine/generator.py` - `_generate_prisma_schema()`
+### 3. Missing Dependencies in package.json (MEDIUM) 🟡
+**File**: `turbine/generator.py` - `_generate_package_json()`
 
-Current:
-```prisma
-model Todo {
-  todoListId String?  // Just a string field
-}
-```
+Add to generated package.json:
+- `dotenv` in dependencies
+- `tsx` in devDependencies
 
-Target:
-```prisma
-model Todo {
-  todoListId String?
-  todoList   TodoList? @relation(fields: [todoListId], references: [id])
-}
-model TodoList {
-  todos Todo[]
-}
-```
+Currently requires manual `npm install dotenv tsx` after generation.
 
-### 3. Pagination/Filtering/Sorting (MEDIUM)
-Spec supports these features but routes don't handle query params yet.
-
-### 4. Auth Middleware Integration (MEDIUM)
-`src/auth.ts` is generated but not wired into protected routes.
-
-### 5. Custom Endpoints (MEDIUM)
+### 4. Custom Endpoints (MEDIUM) 🟡
 `customEndpoints` section in spec is parsed but not generated.
 
-### 6. Seed Data Script (LOW)
+### 5. Seed Data Script (LOW) 🟢
 `seeds` section in spec is parsed but not used.
 
-### 7. Jinja2 Templates (NICE TO HAVE)
-Move string templates to external `.jinja2` files for customization.
+### 6. Frontend Integration (LOW) 🟢
+React frontend is generated but not connected to API.
 
 ## Project Structure
 
@@ -107,64 +104,132 @@ turbine/
 ├── turbine/                    # Python package
 │   ├── __init__.py             # Package exports
 │   ├── spec.py                 # Pydantic models for turbine.yaml
-│   ├── generator.py            # Main generator (1400+ lines)
+│   ├── generator.py            # Main generator (~2100 lines)
 │   └── cli.py                  # Typer CLI
 ├── examples/
 │   └── todo-api/
-│       └── turbine.yaml        # Example spec (comprehensive)
+│       └── turbine.yaml        # Example spec with identity + ownership
 ├── pyproject.toml              # Python package config
-├── TODO.md                     # Detailed remaining work
-└── src/                        # OLD TypeScript (can delete)
+└── .claude/
+    └── CLAUDE.md               # This file
 ```
 
 ## Key Files to Modify
 
 ### turbine/generator.py
 Main generator class. Key methods:
-- `_generate_fastify_routes()` - Line ~700 - CRUD route stubs
-- `_generate_prisma_schema()` - Line ~1250 - Prisma models
+- `_generate_fastify_routes()` - Line ~900 - Real Prisma CRUD with auth
+- `_generate_prisma_schema()` - Line ~1870 - Models with @relation
 - `_generate_types()` - Line ~200 - TypeScript interfaces + Zod
-- `_generate_auth()` - Line ~1000 - JWT auth code
+- `_generate_auth()` - Line ~1216 - JWT utilities
+- `_generate_auth_middleware()` - Line ~1302 - Auth middleware
+- `_generate_query_builder()` - Line ~1550 - Filtering/sorting utils
 
 ### turbine/spec.py
 Pydantic models for YAML parsing:
-- `TurbineSpec.from_file()` - Load and validate spec
-- `field_to_typescript()` - Type conversion
-- `field_to_zod()` - Zod schema generation
-- `field_to_prisma()` - Prisma type mapping
+- `TurbineSpec` - Main spec model
+- `IdentityConfig` - User entity, role field mapping
+- `EntityOwnership` - trackCreator, trackModifier, autoFilter
+- `field_to_zod()` - **BUG: doesn't handle optional fields**
 
 ### examples/todo-api/turbine.yaml
 Comprehensive example spec with:
 - 3 entities (User, TodoList, Todo)
+- Identity config (userEntity, fields mapping)
+- Ownership config on TodoList and Todo
 - Relations between entities
-- Auth configuration
-- Environment variables
-- Custom endpoints (not yet generated)
 
 ## Generated Project Output
 
-For the todo-api spec, generates 21 files:
+For a spec with 2 entities (User, Todo), generates ~22 files:
 ```
-/tmp/test/
-├── package.json          # Dependencies based on stack
+/tmp/todo-app/
+├── package.json
 ├── tsconfig.json
 ├── Dockerfile
 ├── docker-compose.yml
-├── .env.example          # With placeholder values
+├── .env.example
+├── .gitignore
+├── .github/workflows/ci.yml
 ├── prisma/
-│   └── schema.prisma     # With enums
+│   └── schema.prisma          # With @relation decorators
 ├── src/
-│   ├── index.ts          # Fastify server entry
-│   ├── types.ts          # Interfaces + Zod schemas
-│   ├── auth.ts           # JWT utilities
+│   ├── index.ts               # Fastify server with auth hook
+│   ├── db.ts                  # Prisma client
+│   ├── types.ts               # Interfaces + Zod schemas
+│   ├── auth.ts                # JWT utilities
+│   ├── middleware.ts
+│   ├── middleware/
+│   │   └── auth.ts            # requireAuth, requireRole
+│   ├── utils/
+│   │   └── query-builder.ts   # buildWhere, buildOrderBy, buildPagination
 │   └── routes/
-│       ├── user.ts       # CRUD stubs
-│       ├── todolist.ts
-│       └── todo.ts
-└── frontend/             # If enabled
+│       ├── user.ts            # Real CRUD with Prisma
+│       └── todo.ts            # With ownership checks
+└── frontend/
     └── src/
         ├── App.tsx
         └── main.tsx
+```
+
+## Running a Generated Project
+
+```bash
+# Generate
+source .venv/bin/activate
+turbine generate examples/todo-api/turbine.yaml -o /tmp/myapp
+
+# Setup
+cd /tmp/myapp
+npm install
+npm install dotenv  # Missing from generated package.json
+
+# Add dotenv import to src/index.ts (first line):
+# import 'dotenv/config'
+
+# Database
+docker-compose up -d db
+cp .env.example .env
+# Edit .env with real DATABASE_URL and JWT_SECRET
+npx prisma db push
+
+# Run
+npm run dev
+# Server at http://localhost:3000
+# Swagger docs at http://localhost:3000/docs
+```
+
+## Creating Test Users (No Auth Routes Yet)
+
+```javascript
+// Run with: node -e "..." in the generated project directory
+const bcrypt = require('bcrypt');
+const { PrismaClient } = require('@prisma/client');
+const jwt = require('jsonwebtoken');
+
+async function main() {
+  const db = new PrismaClient();
+  const passwordHash = await bcrypt.hash('password123', 10);
+
+  const user = await db.user.create({
+    data: {
+      email: 'test@example.com',
+      name: 'Test User',
+      passwordHash,
+      role: 'user'
+    }
+  });
+
+  const token = jwt.sign(
+    { userId: user.id, email: user.email, role: user.role },
+    process.env.JWT_SECRET || 'super-secret-key-for-dev',
+    { expiresIn: '7d' }
+  );
+
+  console.log('Token:', token);
+  await db.$disconnect();
+}
+main();
 ```
 
 ## User Preferences (MUST HONOR)
@@ -180,14 +245,13 @@ For the todo-api spec, generates 21 files:
 ```python
 def pascal_case(s: str) -> str:
     """TodoList stays TodoList, not Todolist"""
-    parts = s.replace("-", "_").split("_")
-    return "".join(p[0].upper() + p[1:] if p else "" for p in parts)
 
 def kebab_case(s: str) -> str:
     """Handles spaces: 'Todo API' -> 'todo-api'"""
 
 def camel_case(s: str) -> str:
-    """For variable names"""
+    """Handles PascalCase: 'TodoList' -> 'todoList'"""
+    # Uses regex to insert underscores before capitals
 ```
 
 ## Testing Workflow
@@ -202,17 +266,54 @@ turbine generate examples/todo-api/turbine.yaml -o /tmp/test
 cd /tmp/test
 npm install
 npx tsc --noEmit        # Should pass
-cp .env.example .env
-npx prisma validate     # Should pass
+DATABASE_URL="postgresql://localhost:5432/test" npx prisma validate  # Should pass
 ```
 
-## Next Session: Recommended Starting Point
+## Next Session: Recommended Tasks
 
-Start with **Working Database Operations** (#1 above):
+### Option A: Add Auth Routes (Most Impactful)
+1. Add `_generate_auth_routes()` method in generator.py
+2. Generate `src/routes/auth.ts` with register/login/me endpoints
+3. Register routes in `src/index.ts`
+4. Test full auth flow end-to-end
 
-1. Read `turbine/generator.py` around line 700 (`_generate_fastify_routes`)
-2. Look at how routes are currently generated
-3. Add Prisma client import and actual queries
-4. Test with `npx tsc --noEmit` after each change
+### Option B: Fix Zod Optional Fields
+1. Edit `field_to_zod()` in spec.py
+2. Check if field has `required: true` validation
+3. If not, append `.optional()` to Zod type
+4. Regenerate and verify types.ts
 
-This unblocks the most value - generated projects will actually work with a database.
+### Option C: Fix Missing Dependencies
+1. Edit `_generate_package_json()` in generator.py
+2. Add `dotenv` to dependencies
+3. Add `tsx` to devDependencies
+4. Update `_generate_fastify_entry()` to include `import 'dotenv/config'`
+
+## API Testing Examples
+
+```bash
+TOKEN="your-jwt-token"
+
+# List todos (with auth)
+curl http://localhost:3000/todos -H "Authorization: Bearer $TOKEN"
+
+# Create todo
+curl -X POST http://localhost:3000/todos \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"title":"Buy groceries"}'
+
+# Update todo
+curl -X PUT http://localhost:3000/todos/UUID \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"completed":true}'
+
+# Delete todo
+curl -X DELETE http://localhost:3000/todos/UUID \
+  -H "Authorization: Bearer $TOKEN"
+
+# Filtering & Sorting
+curl "http://localhost:3000/todos?completed=false&sort=createdAt&order=desc" \
+  -H "Authorization: Bearer $TOKEN"
+```
