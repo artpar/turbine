@@ -928,12 +928,15 @@ export type {name}Input = z.infer<typeof {name}Schema>""")
 export const {name_lower}Routes: FastifyPluginAsync = async (app) => {{
 """
 
-        # Generate field lists as constants
+        # Generate field lists as constants (add type annotation for empty arrays)
+        filterable_type = ": string[]" if not filterable_fields else ""
+        searchable_type = ": string[]" if not searchable_fields else ""
+        sortable_type = ": string[]" if not sortable_fields else ""
         content += f"""
   // Field configuration
-  const filterableFields = {json.dumps(filterable_fields)}
-  const searchableFields = {json.dumps(searchable_fields)}
-  const sortableFields = {json.dumps(sortable_fields)}
+  const filterableFields{filterable_type} = {json.dumps(filterable_fields)}
+  const searchableFields{searchable_type} = {json.dumps(searchable_fields)}
+  const sortableFields{sortable_type} = {json.dumps(sortable_fields)}
 """
 
         # LIST operation
